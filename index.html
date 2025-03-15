@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Monad ERC721 Holders Snapshot Tool</title>
+  <style>
+    body {
+      background-color: #9b1a38;
+      color: white;
+    }
+    h1 {
+      font-weight: bold;
+      text-align: center;
+      text-transform: uppercase;
+      font-size: 2em;
+      margin-bottom: 20px;
+    }
+    .form-container {
+      background-color: white;
+      color: black;
+      padding: 20px;
+      width: 400px;
+      margin: 20px auto 0;
+      border-radius: 10px;
+    }
+    .form-container label,
+    .form-container input,
+    .form-container select,
+    .form-container button {
+      display: block;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    .form-container button {
+      background-color: #9b1a38;
+      color: white;
+      border: none;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .instructions {
+      text-align: center;
+      margin-top: 20px;
+    }
+    .instructions ul {
+      list-style-type: disc;
+      display: inline-block;
+      text-align: left;
+      color: white;
+      font-size: 1em;
+    }
+  </style>
+</head>
+<body>
+  <h1>SigmaShot</h1>
+  <div class="form-container">
+    <form id="snapshotForm">
+      <label for="tokenAddress">ERC721 Contract Address:</label>
+      <input type="text" id="tokenAddress" required>
+      <label for="sortOrder">Sort Order:</label>
+      <select id="sortOrder">
+        <option value="descending">Descending (Most tokens first)</option>
+        <option value="ascending">Ascending (Least tokens first)</option>
+      </select>
+      <button type="submit">Download CSV</button>
+    </form>
+  </div>
+  <div class="instructions">
+    <ul>
+      <li>Please provide contract address</li>
+      <li>Choose asc or desc</li>
+      <li>Hit download and wait for a couple of minutes</li>
+    </ul>
+  </div>
+  <script>
+    // Set your Render backend URL here
+    const backendUrl = 'https://your-render-url.onrender.com';
+
+    document.getElementById("snapshotForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      // Get inputs from the form and trim any extra spaces
+      const tokenAddress = document.getElementById("tokenAddress").value.trim();
+      const sortOrder = document.getElementById("sortOrder").value;
+      
+      const pageSize = 20; // Adjust if needed
+      let pageIndex = 1;
+      let allHolders = [];
+
+      // Fetch holders data from the Render backend with pagination
+      while (true) {
+        const url = `${backendUrl}/api/fetch-holders?contractAddress=${tokenAddress}&pageIndex=${pageIndex}&pageSize=${pageSize}`;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}: ${response.statusText}`);
+          }
+          const data = await response.json();
+          console.log('API Response:', JSON.stringify(data, null, 2)); // Log for debugging
+
+          // Check for API errors
+          if (data.code !== 0) {
+            throw new Error(`API Error: ${data.message || data.reason}`);
+          }
+
+          // Extract holders from the correct path
+          const holders = data.result.data;
+          if (!holders || !Array.isArray(holders)) {
+            throw new Error('Unexpected API response structure: unable to find holders data');
+          }
+
+          allHolders = allHolders.concat(holders);
+
+          // Check if there are more pages
+          if (holders.length < pageSize || !data.result.nextPageIndex) {
+            break;
+          }
+          pageIndex = data.result.nextPageIndex;
+        } catch (error) {
+          console.error('Error fetching holders:', error.message);
+          alert('Failed to fetch holders data. Check the console for details.');
+          return;
+        }
+      }
+
+      // Check if any holders were found
+      if (allHolders.length === 0) {
+        alert('No holders found for this contract.');
+        return;
+      }
+
+      // Sort the holders based on the selected order
+      if (sortOrder === "ascending") {
+        allHolders.sort((a, b) => Number(a.amount) - Number(b.amount));
+      } else {
+        allHolders.sort((a, b) => Number(b.amount) - Number(a.amount));
+      }
+
+      // Generate the CSV content with percentage included
+      const csvRows = ['address,number_of_tokens,percentage'];
+      for (const holder of allHolders) {
+        const row = `${holder.ownerAddress},${holder.amount},${holder.percentage}`;
+        csvRows.push(row);
+      }
+      const csv = csvRows.join('\n');
+
+      // Create and trigger the CSV download
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `holders-${tokenAddress}-${sortOrder}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  </script>
+</body>
+</html>
